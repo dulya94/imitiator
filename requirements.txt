@@ -1,0 +1,6 @@
+# PC Action Imitator — зависимости для Windows 11
+# Python 3.10+ (tkinter входит в стандартную установку Python для Windows)
+
+pynput>=1.7.6        # перехват и имитация ввода мыши/клавиатуры
+APScheduler>=3.10,<4 # планировщик запуска по расписанию
+tzlocal>=3.0         # локальная таймзона для APScheduler

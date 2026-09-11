@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "name": "example_scenario",
+  "created_at": 1789098000.0,
+  "duration": 5.6,
+  "url": "https://portal.dev.symphony.itfb.tech/document-and-storage/list/all",
+  "screen_w": 1920,
+  "screen_h": 1080,
+  "events": [
+    { "type": "move",  "t": 0.0,  "x": 400, "y": 300 },
+    { "type": "click", "t": 1.2,  "x": 705, "y": 438, "button": "left", "pressed": true },
+    { "type": "click", "t": 1.28, "x": 705, "y": 438, "button": "left", "pressed": false },
+    { "type": "key",   "t": 2.0,  "key": "c:h", "action": "press" },
+    { "type": "key",   "t": 2.1,  "key": "c:h", "action": "release" },
+    { "type": "key",   "t": 2.6,  "key": "k:esc", "action": "press" },
+    { "type": "key",   "t": 2.7,  "key": "k:esc", "action": "release" },
+    { "type": "move",  "t": 3.4,  "x": 960, "y": 540 },
+    { "type": "click", "t": 3.9,  "x": 960, "y": 540, "button": "left", "pressed": true },
+    { "type": "click", "t": 4.0,  "x": 960, "y": 540, "button": "left", "pressed": false },
+    { "type": "move",  "t": 4.6,  "x": 800, "y": 400 },
+    { "type": "key",   "t": 5.0,  "key": "k:enter", "action": "press" },
+    { "type": "key",   "t": 5.1,  "key": "k:enter", "action": "release" }
+  ]
+}
