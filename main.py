@@ -44,6 +44,7 @@ TIP_ADD_IDLE = ("F9 — быстрый старт записи (без диал�
 TIP_ADD_RECORDING = "Сейчас идёт запись\nF10 или эта кнопка — стоп записи"
 TIP_PLAY = "Запустить сценарий\nESC — остановить воспроизведение"
 TIP_STOP = "Остановить воспроизведение\n(горячая клавиша ESC)"
+TIP_URL = "Изменить ссылку (стенд),\nна которой выполняется сценарий"
 TIP_RENAME = "Переименовать сценарий"
 TIP_DELETE = "Удалить сценарий (без возврата)"
 
@@ -190,16 +191,24 @@ class App(tk.Tk):
             footer, text="Подгонять координаты под разрешение экрана",
             variable=self.var_fit).grid(row=0, column=3, sticky="w", padx=(24, 0))
 
-        # ---------- строка 2: целевой сайт, на котором выполняются действия ----------
-        ttk.Label(footer, text="Сайт действий:").grid(
+        # ---------- строка 2: стенд, на котором выполняются действия ----------
+        ttk.Label(footer, text="Стенд действий:").grid(
             row=2, column=0, sticky="w", pady=(8, 0))
-        self.ent_site = ttk.Entry(footer)
-        self.ent_site.grid(row=2, column=1, columnspan=4, sticky="we",
+        # Редактируемый комбобокс: можно выбрать сохранённый стенд из списка
+        # или вписать любую свою ссылку (Enter — открыть)
+        self.cmb_site = ttk.Combobox(footer)
+        self.cmb_site.grid(row=2, column=1, columnspan=4, sticky="we",
                            pady=(8, 0), padx=(0, 6))
+        self.cmb_site.bind("<Return>", lambda e: self._open_site_now())
+        ToolTip(self.cmb_site,
+                "Выберите сохранённый стенд из списка или впишите свою ссылку.\n"
+                "Enter — открыть выбранный стенд в браузере.")
         self.btn_open_site = ttk.Button(
             footer, text="🌐 Открыть", width=10, command=self._open_site_now)
         self.btn_open_site.grid(row=2, column=5, sticky="w", pady=(8, 0))
-        ToolTip(self.btn_open_site, "Открыть «Сайт действий» в браузере по умолчанию")
+        ToolTip(self.btn_open_site,
+                "Открыть выбранный стенд в браузере по умолчанию\n"
+                "(и запомнить его в списке стендов)")
         ttk.Label(footer, text="Ожидание загрузки (сек):").grid(
             row=2, column=6, sticky="e", pady=(8, 0), padx=(20, 4))
         self.ent_page_wait = ttk.Spinbox(footer, from_=0, to=600, width=5)
@@ -325,10 +334,11 @@ class App(tk.Tk):
         buttons = (
             ("▶", COLOR_ACCENT, lambda n=sc.name: self._start_playback(n), TIP_PLAY),
             ("⏹", COLOR_DANGER, self._stop_playback_if_any, TIP_STOP),
+            ("🔗", "#2ea043", lambda n=sc.name: self._edit_scenario_url(n), TIP_URL),
             ("✏", "#8a8a8a", lambda n=sc.name: self._rename(n), TIP_RENAME),
             ("🗑", COLOR_DANGER, lambda n=sc.name: self._delete(n), TIP_DELETE),
         )
-        # Кнопки ▶ ⏹ ✏ 🗑 в фиксированных колонках справа
+        # Кнопки ▶ ⏹ 🔗 ✏ 🗑 в фиксированных колонках справа
         for col, (text, color, cmd, _tip) in enumerate(buttons, start=2):
             btn = tk.Button(
                 row, text=text, command=cmd, width=3, relief="flat",
@@ -399,7 +409,7 @@ class App(tk.Tk):
 
     def _begin_pending_record(self, name: str) -> None:
         """Ожидание завершилось — старт записи на загруженном сайте."""
-        url = webtools.normalize_url(self.ent_site.get())
+        url = self._target_site()
         self._pending_record = None
         self._pending_deadline = None
         self._pending_name = None
@@ -506,12 +516,13 @@ class App(tk.Tk):
             return 0.0
 
     def _save_controls(self) -> None:
-        """Сохранить loop/delay/сайт/подгонку разрешения в config.json."""
+        """Сохранить loop/delay/стенд/подгонку разрешения в config.json."""
         self.config_data["loop"] = bool(self.var_loop.get())
         self.config_data["delay"] = self._get_delay()
         self.config_data["target_url"] = self._target_site()
         self.config_data["page_load_wait"] = self._page_wait()
         self.config_data["adapt_resolution"] = bool(self.var_fit.get())
+        self._remember_stand(self._target_site())
         storage.save_config(self.config_data)
 
     def _controls_from_config(self) -> None:
@@ -519,16 +530,38 @@ class App(tk.Tk):
         self.var_loop.set(bool(self.config_data.get("loop", False)))
         self.spin_delay.delete(0, "end")
         self.spin_delay.insert(0, str(self.config_data.get("delay", 0)))
-        self.ent_site.delete(0, "end")
-        self.ent_site.insert(0, str(self.config_data.get("target_url", webtools.DEFAULT_TARGET_URL)))
+        # Список сохранённых стендов + текущий (глобальный) адрес
+        stands = self._stands_list()
+        current = webtools.normalize_url(
+            self.config_data.get("target_url")) or webtools.DEFAULT_TARGET_URL
+        if current not in stands:
+            stands.insert(0, current)
+        self.cmb_site["values"] = stands
+        self.cmb_site.set(current)
         self.ent_page_wait.delete(0, "end")
         self.ent_page_wait.insert(0, str(self.config_data.get("page_load_wait", 5)))
         self.var_fit.set(bool(self.config_data.get("adapt_resolution", True)))
 
-    # ---------------------- целевой сайт действий ----------------------
+    # ---------------------- стенды (ссылки на окружения) ----------------------
+    def _stands_list(self) -> list:
+        """Нормализованный список сохранённых стендов из config.json."""
+        stands = [webtools.normalize_url(s)
+                  for s in (self.config_data.get("stands") or [])]
+        return [s for s in stands if s]
+
+    def _remember_stand(self, url: str) -> None:
+        """Запомнить стенд в списке (в начало), чтобы быстро переключаться."""
+        url = webtools.normalize_url(url)
+        if not url:
+            return
+        stands = [s for s in self._stands_list() if s != url]
+        stands.insert(0, url)
+        self.config_data["stands"] = stands
+        self.cmb_site["values"] = stands
+
     def _target_site(self) -> str:
-        """Сайт из поля настроек (нормализованный; пусто — адрес по умолчанию)."""
-        return webtools.normalize_url(self.ent_site.get()) or webtools.DEFAULT_TARGET_URL
+        """Стенд из комбобокса (нормализованный; пусто — адрес по умолчанию)."""
+        return webtools.normalize_url(self.cmb_site.get()) or webtools.DEFAULT_TARGET_URL
 
     def _page_wait(self) -> float:
         """Ожидание загрузки страницы перед стартом записи/воспроизведения."""
@@ -566,10 +599,11 @@ class App(tk.Tk):
             self._refresh_list()
             return
         loop = bool(self.var_loop.get())
-        # Открываем целевой сайт и добавляем ожидание его загрузки к задержке
+        # Открываем целевой стенд и добавляем ожидание его загрузки к задержке
         url = self._scenario_url(scenario)
         user_delay = self._get_delay() if not from_schedule else 0.0
         delay = self._page_wait() + user_delay
+        self._remember_stand(url)  # стенд попадёт в список для переключения
         webtools.open_url(url)
         self._save_controls()
         # Колбэки из потока плеера передаём в поток Tk через after
@@ -697,6 +731,32 @@ class App(tk.Tk):
         """Клик по строке списка — выбрать сценарий (подсветка + расписание)."""
         self._selected = name
         self._load_schedule_controls(name)
+        self._refresh_list()
+
+    def _edit_scenario_url(self, name: str) -> None:
+        """Кнопка 🔗 — задать ссылку (стенд), на которой выполняется сценарий."""
+        scenario = storage.load_scenario(name)
+        if scenario is None:
+            messagebox.showerror("URL сценария",
+                                 f"Сценарий «{name}» не найден или повреждён.", parent=self)
+            self._refresh_list()
+            return
+        url = simpledialog.askstring(
+            "URL сценария",
+            "Ссылка на стенд, на которой будет выполняться сценарий\n"
+            "(пусто — глобальный стенд из настроек):",
+            initialvalue=scenario.url or self._target_site(), parent=self)
+        if url is None:
+            return
+        scenario.url = webtools.normalize_url(url)
+        try:
+            storage.save_scenario(scenario)
+        except RuntimeError as exc:
+            messagebox.showerror("URL сценария", str(exc), parent=self)
+            return
+        if scenario.url:
+            self._remember_stand(scenario.url)  # стенд появится в списке
+        self._set_status(f"🔗 «{name}»: {scenario.url or 'стенд из настроек'}")
         self._refresh_list()
 
     def _rename(self, old_name: str) -> None:

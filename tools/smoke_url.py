@@ -35,24 +35,33 @@ assert sc2.url == sc.url
 sc3 = models.Scenario.from_dict({"name": "old"})
 assert sc3.url == ""
 
-# 5. Конфиг содержит сайт и ожидание загрузки
+# 5. Конфиг содержит стенд, список стендов и ожидание загрузки
 cfg = storage.load_config()
 assert str(cfg.get("target_url", "")).startswith("https://portal.dev.symphony.itfb.tech")
+assert isinstance(cfg.get("stands", []), list)
 assert float(cfg.get("page_load_wait", 0)) >= 0
 
 # 6. open_url на пустом значении не открывает браузер и возвращает False
 assert webtools.open_url("") is False
 
-# 7. Интеграция с UI: окно создаётся, поле сайта заполнено, _scenario_url
-#    отдаёт сайт по умолчанию для сценария без своего URL (браузер не открываем)
+# 7. Интеграция с UI: окно создаётся, комбобокс стендов заполнен, _scenario_url
+#    отдаёт стенд по умолчанию для сценария без своего URL (браузер не открываем)
 import main
 
 app = main.App()
-assert app.ent_site.get().startswith("https://portal.dev")
+assert app.cmb_site.get().startswith("https://portal.dev")
+assert isinstance(app.cmb_site["values"], tuple) and app.cmb_site["values"]
 assert app._scenario_url(models.Scenario(name="x")) == webtools.DEFAULT_TARGET_URL
 assert app._scenario_url(models.Scenario(name="y", url="portal.dev.symphony.itfb.tech/login")) == \
     "https://portal.dev.symphony.itfb.tech/login"
 assert app._target_site() == webtools.DEFAULT_TARGET_URL
+
+# 8. Список стендов: запоминание и дедупликация
+app._remember_stand("portal.dev.symphony.itfb.tech/dev")
+assert "https://portal.dev.symphony.itfb.tech/dev" in app._stands_list()
+before = len(app._stands_list())
+app._remember_stand("https://portal.dev.symphony.itfb.tech/dev")
+assert len(app._stands_list()) == before  # дубликат не добавился
 app.after(1200, app.destroy)
 app.mainloop()
 
