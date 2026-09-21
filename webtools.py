@@ -1,8 +1,9 @@
 """
 webtools.py — работа с целевым сайтом PC Action Imitator.
 
-Все записываемые и воспроизводимые действия выполняются на целевом сайте:
-  https://portal.dev.symphony.itfb.tech/document-and-storage/list/all
+Все записываемые и воспроизводимые действия выполняются на выбранном стенде.
+В интерфейсе доступен быстрый выбор из предустановленных стендов
+(PRESET_STANDS), а также можно вписать свою ссылку.
 
 Модуль открывает нужный адрес в браузере по умолчанию перед стартом
 записи/воспроизведения (само ожидание загрузки делает UI/плеер через
@@ -12,8 +13,21 @@ from __future__ import annotations
 
 import webbrowser
 
+# Предустановленные стенды для выбора в интерфейсе (порядок = порядок в списке)
+PRESET_STANDS = [
+    "https://portal.dev.symphony.itfb.tech/",
+    "https://portal.test.symphony.itfb.tech/",
+    "https://portal.demo.symphony.itfb.tech/",
+    "https://portal.dev.symphony.moek.itfb.tech/",
+]
+
 # Сайт, на котором выполняются все действия (адрес по умолчанию)
-DEFAULT_TARGET_URL = "https://portal.dev.symphony.itfb.tech/document-and-storage/list/all"
+DEFAULT_TARGET_URL = PRESET_STANDS[0]
+
+
+def preset_stands() -> list:
+    """Копия списка предустановленных стендов (чтобы UI не менял константу)."""
+    return list(PRESET_STANDS)
 
 
 def normalize_url(url: str) -> str:

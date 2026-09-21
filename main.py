@@ -47,6 +47,11 @@ TIP_STOP = "Остановить воспроизведение\n(горячая
 TIP_URL = "Изменить ссылку (стенд),\nна которой выполняется сценарий"
 TIP_RENAME = "Переименовать сценарий"
 TIP_DELETE = "Удалить сценарий (без возврата)"
+TIP_USE_SC_URL = (
+    "Выключено (по умолчанию): запуск открывает стенд,\n"
+    "выбранный в списке «Стенд действий» — его можно менять.\n"
+    "Включено: если у сценария задан свой стенд (кнопка 🔗),\n"
+    "запуск откроет его вместо выбранного.")
 
 
 def setup_window_icon(window: tk.Tk) -> None:
@@ -200,19 +205,38 @@ class App(tk.Tk):
         self.cmb_site.grid(row=2, column=1, columnspan=4, sticky="we",
                            pady=(8, 0), padx=(0, 6))
         self.cmb_site.bind("<Return>", lambda e: self._open_site_now())
+        # Выбор стенда из списка сразу запоминается и становится текущим
+        self.cmb_site.bind("<<ComboboxSelected>>", lambda e: self._on_stand_changed())
         ToolTip(self.cmb_site,
-                "Выберите сохранённый стенд из списка или впишите свою ссылку.\n"
+                "Стенд, на котором выполняются запись и воспроизведение.\n"
+                "Выберите из списка или впишите свою ссылку.\n"
                 "Enter — открыть выбранный стенд в браузере.")
         self.btn_open_site = ttk.Button(
             footer, text="🌐 Открыть", width=10, command=self._open_site_now)
-        self.btn_open_site.grid(row=2, column=5, sticky="w", pady=(8, 0))
+        self.btn_open_site.grid(row=2, column=5, sticky="w", pady=(8, 0), padx=(0, 6))
         ToolTip(self.btn_open_site,
                 "Открыть выбранный стенд в браузере по умолчанию\n"
                 "(и запомнить его в списке стендов)")
+        self.btn_add_stand = ttk.Button(
+            footer, text="＋ Стенд", width=8, command=self._add_stand)
+        self.btn_add_stand.grid(row=2, column=6, sticky="w", pady=(8, 0), padx=(0, 6))
+        ToolTip(self.btn_add_stand,
+                "Добавить стенд для имитации:\n"
+                "введите ссылку — она добавится в список\nи станет текущим стендом")
         ttk.Label(footer, text="Ожидание загрузки (сек):").grid(
-            row=2, column=6, sticky="e", pady=(8, 0), padx=(20, 4))
+            row=2, column=7, sticky="e", pady=(8, 0), padx=(12, 4))
         self.ent_page_wait = ttk.Spinbox(footer, from_=0, to=600, width=5)
-        self.ent_page_wait.grid(row=2, column=7, sticky="w", pady=(8, 0))
+        self.ent_page_wait.grid(row=2, column=8, sticky="w", pady=(8, 0))
+
+        # ---------- строка 3: откуда брать стенд при запуске ----------
+        # По умолчанию запуск открывает стенд, выбранный в списке выше
+        # (его можно менять). Галочка переключает на стенд из сценария (🔗).
+        self.var_sc_url = tk.BooleanVar(value=False)
+        chk_sc_url = ttk.Checkbutton(
+            footer, text="Для запуска брать стенд из сценария (🔗), если он задан",
+            variable=self.var_sc_url)
+        chk_sc_url.grid(row=3, column=0, columnspan=5, sticky="w", pady=(6, 0))
+        ToolTip(chk_sc_url, TIP_USE_SC_URL)
 
         ttk.Label(footer, text="Расписание:").grid(row=1, column=0, sticky="w", pady=(8, 0))
         self.cmb_schedule = ttk.Combobox(
@@ -522,6 +546,7 @@ class App(tk.Tk):
         self.config_data["target_url"] = self._target_site()
         self.config_data["page_load_wait"] = self._page_wait()
         self.config_data["adapt_resolution"] = bool(self.var_fit.get())
+        self.config_data["use_scenario_url"] = bool(self.var_sc_url.get())
         self._remember_stand(self._target_site())
         storage.save_config(self.config_data)
 
@@ -530,17 +555,19 @@ class App(tk.Tk):
         self.var_loop.set(bool(self.config_data.get("loop", False)))
         self.spin_delay.delete(0, "end")
         self.spin_delay.insert(0, str(self.config_data.get("delay", 0)))
-        # Список сохранённых стендов + текущий (глобальный) адрес
-        stands = self._stands_list()
+        # Список стендов: предустановленные + свои + текущий адрес
+        values = self._stand_values()
         current = webtools.normalize_url(
             self.config_data.get("target_url")) or webtools.DEFAULT_TARGET_URL
-        if current not in stands:
-            stands.insert(0, current)
-        self.cmb_site["values"] = stands
+        if current not in values:
+            values.append(current)
+        self.cmb_site["values"] = values
         self.cmb_site.set(current)
         self.ent_page_wait.delete(0, "end")
         self.ent_page_wait.insert(0, str(self.config_data.get("page_load_wait", 5)))
         self.var_fit.set(bool(self.config_data.get("adapt_resolution", True)))
+        # По умолчанию запуск идёт на стенд, выбранный в списке
+        self.var_sc_url.set(bool(self.config_data.get("use_scenario_url", False)))
 
     # ---------------------- стенды (ссылки на окружения) ----------------------
     def _stands_list(self) -> list:
@@ -549,19 +576,45 @@ class App(tk.Tk):
                   for s in (self.config_data.get("stands") or [])]
         return [s for s in stands if s]
 
+    def _stand_values(self) -> list:
+        """Список для выпадающего меню: предустановленные стенды + свои."""
+        values = webtools.preset_stands()
+        for s in self._stands_list():
+            if s not in values:
+                values.append(s)
+        return values
+
+    def _refresh_stand_values(self) -> None:
+        """Обновить выпадающий список стендов, сохранив текущий выбор."""
+        current = webtools.normalize_url(self.cmb_site.get())
+        values = self._stand_values()
+        if current and current not in values:
+            values.append(current)
+        self.cmb_site["values"] = values
+        if current:
+            self.cmb_site.set(current)
+
     def _remember_stand(self, url: str) -> None:
-        """Запомнить стенд в списке (в начало), чтобы быстро переключаться."""
+        """Запомнить свой стенд в списке (предустановленные не дублируются)."""
         url = webtools.normalize_url(url)
         if not url:
             return
-        stands = [s for s in self._stands_list() if s != url]
-        stands.insert(0, url)
-        self.config_data["stands"] = stands
-        self.cmb_site["values"] = stands
+        if url not in webtools.PRESET_STANDS:
+            stands = [s for s in self._stands_list() if s != url]
+            stands.insert(0, url)
+            self.config_data["stands"] = stands
+        self._refresh_stand_values()
 
     def _target_site(self) -> str:
         """Стенд из комбобокса (нормализованный; пусто — адрес по умолчанию)."""
         return webtools.normalize_url(self.cmb_site.get()) or webtools.DEFAULT_TARGET_URL
+
+    def _on_stand_changed(self) -> None:
+        """Пользователь выбрал стенд в списке — запомнить и показать в статусе."""
+        url = self._target_site()
+        self._remember_stand(url)
+        self._save_controls()
+        self._set_status(f"🌐 Стенд для запуска: {url}")
 
     def _page_wait(self) -> float:
         """Ожидание загрузки страницы перед стартом записи/воспроизведения."""
@@ -570,9 +623,18 @@ class App(tk.Tk):
         except (ValueError, TypeError):
             return 5.0
 
-    def _scenario_url(self, scenario: Scenario) -> str:
-        """URL для сценария: свой, иначе глобальный сайт из настроек."""
-        return webtools.normalize_url(getattr(scenario, "url", "")) or self._target_site()
+    def _playback_url(self, scenario: Scenario) -> str:
+        """Стенд, который откроется при запуске сценария.
+
+        По умолчанию — выбранный в списке «Стенд действий» (его можно менять
+        в любой момент). Если включена галочка «брать стенд из сценария» и у
+        сценария задан свой стенд (кнопка 🔗) — используется он.
+        """
+        if self.var_sc_url.get():
+            own = webtools.normalize_url(getattr(scenario, "url", ""))
+            if own:
+                return own
+        return self._target_site()
 
     def _open_site_now(self) -> None:
         """Кнопка «🌐 Открыть» — открыть сайт в браузере вручную."""
@@ -582,6 +644,35 @@ class App(tk.Tk):
             self._set_status(f"🌐 Сайт открыт в браузере: {url}")
         else:
             self._set_status(f"⚠ Не удалось открыть сайт: {url}")
+
+    def _add_stand(self) -> None:
+        """Кнопка «＋ Стенд» — добавить стенд для имитации в список.
+
+        Введённая ссылка нормализуется, добавляется в список стендов,
+        делается текущей и сохраняется в config.json. После добавления
+        можно сразу открыть стенд в браузере.
+        """
+        url = simpledialog.askstring(
+            "Добавить стенд для имитации",
+            "Ссылка на стенд (например:\nportal-stage.symphony.itfb.tech/...):",
+            initialvalue=self._target_site(), parent=self)
+        if url is None:
+            return  # отмена
+        url = webtools.normalize_url(url)
+        if not url:
+            messagebox.showerror("Добавить стенд",
+                                 "Ссылка не может быть пустой.", parent=self)
+            return
+        was_known = url in self._stands_list()
+        self._remember_stand(url)
+        self.cmb_site.set(url)
+        self._save_controls()
+        if messagebox.askyesno("Стенд добавлен",
+                               f"Стенд: {url}\nОткрыть его в браузере сейчас?",
+                               parent=self):
+            self._open_site_now()
+        else:
+            self._set_status(("✔ Стенд обновлён: " if was_known else "✔ Стенд добавлен: ") + url)
 
     def _start_playback(self, name: str, from_schedule: bool = False) -> None:
         """Запустить сценарий в фоновом потоке (UI не блокируется)."""
@@ -599,8 +690,8 @@ class App(tk.Tk):
             self._refresh_list()
             return
         loop = bool(self.var_loop.get())
-        # Открываем целевой стенд и добавляем ожидание его загрузки к задержке
-        url = self._scenario_url(scenario)
+        # Открываем стенд для запуска и добавляем ожидание его загрузки к задержке
+        url = self._playback_url(scenario)
         user_delay = self._get_delay() if not from_schedule else 0.0
         delay = self._page_wait() + user_delay
         self._remember_stand(url)  # стенд попадёт в список для переключения
