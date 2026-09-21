@@ -58,6 +58,23 @@ python main.py
 Создайте ярлык `python main.py` и поместите его в папку
 `shell:startup` (`Win+R` → `shell:startup`).
 
+### Ярлык и копия на рабочем столе
+
+На рабочем столе могут лежать **иконка запуска** и **копия программы**:
+
+```
+Desktop/
+├─ PC Action Imitator.lnk        ← двойной клик = запуск (без окна консоли)
+└─ PC Action Imitator/           ← сама программа + Ваши config.json и scenarios/
+```
+
+- Пересоздать ярлык: `powershell -File tools\make_desktop_shortcut.ps1`
+- Обновить код настольной копии после изменений в проекте:
+  `powershell -File tools\sync_desktop.ps1`
+  (скрипт копирует **только код** — `config.json` и `scenarios/` не трогаются,
+  поэтому настройки, список стендов и записанные сценарии сохраняются)
+- Проверить, что ярлык рабочий: `powershell -File tools\verify_shortcut.ps1`
+
 ---
 
 ## Как пользоваться
